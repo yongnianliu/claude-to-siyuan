@@ -153,7 +153,8 @@ async function main() {
   const template = config.template || DEFAULT_TEMPLATE;
   const headerTemplate = config.headerTemplate || DEFAULT_HEADER_TEMPLATE;
   const parentPath = config.parentPath || '/Claude Code Sessions';
-  const siyuanUrl = config.siyuanUrl || 'http://127.0.0.1:6806';
+  const port = config.siyuanPort || '6806';
+  const siyuanUrl = config.siyuanUrl || `http://127.0.0.1:${port}`;
   const token = config.siyuanToken || getSiYuanToken();
 
   // 3. Cleanup stale state files (non-blocking best-effort)

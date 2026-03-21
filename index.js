@@ -17,6 +17,8 @@ const DEFAULT_HEADER_TEMPLATE =
 const DEFAULT_CONFIG = {
   notebook: '',
   parentPath: '/Claude Code Sessions',
+  siyuanPort: '6806',
+  claudeConfigDir: '.claude',
   template: DEFAULT_TEMPLATE,
   headerTemplate: DEFAULT_HEADER_TEMPLATE,
 };
@@ -73,6 +75,21 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     parentPathInput.className = 'b3-text-field fn__block';
     parentPathInput.value = this.config.parentPath;
     parentPathInput.placeholder = '/Claude Code Sessions';
+
+    // -- SiYuan port input --
+    const portInput = document.createElement('input');
+    portInput.className = 'b3-text-field fn__block';
+    portInput.type = 'number';
+    portInput.min = '1';
+    portInput.max = '65535';
+    portInput.value = this.config.siyuanPort || '6806';
+    portInput.placeholder = '6806';
+
+    // -- Claude config dir input --
+    const claudeDirInput = document.createElement('input');
+    claudeDirInput.className = 'b3-text-field fn__block';
+    claudeDirInput.value = this.config.claudeConfigDir || '.claude';
+    claudeDirInput.placeholder = '.claude';
 
     // -- Message template textarea --
     const templateInput = document.createElement('textarea');
@@ -171,6 +188,8 @@ module.exports = class ClaudeToSiYuan extends Plugin {
       confirmCallback: async () => {
         this.config.notebook = notebookSelect.value;
         this.config.parentPath = parentPathInput.value || '/Claude Code Sessions';
+        this.config.siyuanPort = portInput.value || '6806';
+        this.config.claudeConfigDir = claudeDirInput.value || '.claude';
         this.config.template = templateInput.value || DEFAULT_TEMPLATE;
         this.config.headerTemplate = headerInput.value || DEFAULT_HEADER_TEMPLATE;
         await this.saveData(CONFIG_KEY, this.config);
@@ -197,6 +216,20 @@ module.exports = class ClaudeToSiYuan extends Plugin {
       description: this.i18n.setting.parentPathDesc,
       direction: 'row',
       createActionElement: () => parentPathInput,
+    });
+
+    this.setting.addItem({
+      title: this.i18n.setting.siyuanPort,
+      description: this.i18n.setting.siyuanPortDesc,
+      direction: 'row',
+      createActionElement: () => portInput,
+    });
+
+    this.setting.addItem({
+      title: this.i18n.setting.claudeConfigDir,
+      description: this.i18n.setting.claudeConfigDirDesc,
+      direction: 'row',
+      createActionElement: () => claudeDirInput,
     });
 
     this.setting.addItem({
@@ -331,6 +364,13 @@ module.exports = class ClaudeToSiYuan extends Plugin {
   }
 
   /**
+   * Get the claude config dir name (e.g. '.claude' or '.claude-internal')
+   */
+  getClaudeDir() {
+    return this.config.claudeConfigDir || '.claude';
+  }
+
+  /**
    * Read ~/.claude/settings.json via file system
    */
   async readClaudeSettings() {
@@ -358,7 +398,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
         const fs = require('fs');
         const path = require('path');
         const os = require('os');
-        const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+        const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
         try {
           const data = fs.readFileSync(settingsPath, 'utf8');
           process.stdout.write(data);
@@ -417,7 +457,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
       const path = require('path');
       const os = require('os');
 
-      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
       const hookCommand = 'node "' + ${JSON.stringify(normalizedPath)} + '"';
 
       let settings = {};
@@ -478,13 +518,15 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     const confData = await confResp.json();
     const workspaceDir = confData.data.conf.system.workspaceDir;
 
+    const claudeDir = this.getClaudeDir();
+
     // Write install helper script to plugin directory via SiYuan file API
     const installScript = `
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
 const hookCommand = 'node "${normalizedPath}"';
 
 let settings = {};
@@ -535,7 +577,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
 
 let settings = {};
 try {
@@ -585,7 +627,7 @@ if (settings.hooks && settings.hooks.Stop) {
       const path = require('path');
       const os = require('os');
 
-      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
 
       let settings = {};
       try {
@@ -630,12 +672,13 @@ if (settings.hooks && settings.hooks.Stop) {
 
   async checkHookStatus() {
     try {
+      const claudeDir = this.getClaudeDir();
       const { execSync } = require('child_process');
       const result = execSync(`node -e "
         const fs = require('fs');
         const path = require('path');
         const os = require('os');
-        const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+        const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
         try {
           const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
           const found = s.hooks && s.hooks.Stop && s.hooks.Stop.some(e =>
@@ -660,6 +703,8 @@ if (settings.hooks && settings.hooks.Stop) {
     const hookConfig = {
       notebook: this.config.notebook,
       parentPath: this.config.parentPath,
+      siyuanPort: this.config.siyuanPort || '6806',
+      claudeConfigDir: this.config.claudeConfigDir || '.claude',
       template: this.config.template,
       headerTemplate: this.config.headerTemplate,
     };
