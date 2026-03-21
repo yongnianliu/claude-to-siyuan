@@ -17,6 +17,12 @@ const { formatMessages, generateDocHeader, formatDate } = require('./src/formatt
 const SiYuanAPI = require('./src/siyuan-api');
 const { loadState, saveState, cleanupStaleStates } = require('./src/state');
 
+// ── Symlink-safe path resolution ──────────────────────────────────
+// __dirname resolves symlinks to the real path, which breaks workspace
+// detection when the plugin is symlinked into SiYuan's plugins directory.
+// process.argv[1] preserves the original (symlink) path as invoked.
+const SCRIPT_DIR = path.dirname(process.argv[1] || __filename);
+
 // ── Stdin reading with 10s timeout guard ──────────────────────────
 const STDIN_TIMEOUT_MS = 10000;
 
@@ -51,7 +57,7 @@ function loadConfig() {
   }
 
   // Priority 2: Plugin directory hook-config.json (written by SiYuan plugin settings UI)
-  const pluginConfig = path.join(__dirname, 'hook-config.json');
+  const pluginConfig = path.join(SCRIPT_DIR, 'hook-config.json');
   if (fs.existsSync(pluginConfig)) {
     return JSON.parse(fs.readFileSync(pluginConfig, 'utf8'));
   }
@@ -102,9 +108,11 @@ function getSiYuanToken() {
   }
 
   // Detect workspace from plugin path: {workspace}/data/plugins/claude-to-siyuan/hook.js
-  const pluginDir = __dirname;
-  const dataDir = path.dirname(path.dirname(pluginDir)); // Go up from plugins/claude-to-siyuan to data
-  const workspaceDir = path.dirname(dataDir); // Go up from data to workspace
+  // Use SCRIPT_DIR (symlink-safe) instead of __dirname (resolves symlinks)
+  const pluginDir = SCRIPT_DIR;
+  const pluginsDir = path.dirname(pluginDir);   // .../data/plugins
+  const dataDir = path.dirname(pluginsDir);      // .../data
+  const workspaceDir = path.dirname(dataDir);    // .../{workspace}
   possibleConfs.push(path.join(workspaceDir, 'conf', 'conf.json'));
 
   for (const confPath of possibleConfs) {
