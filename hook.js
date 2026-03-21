@@ -89,17 +89,8 @@ function getSiYuanToken() {
     return process.env.SIYUAN_TOKEN;
   }
 
-  // Priority 2: Legacy config file (which has siyuanToken field)
-  const legacyConfig = path.join(os.homedir(), '.claude-to-siyuan', 'config.json');
-  if (fs.existsSync(legacyConfig)) {
-    try {
-      const cfg = JSON.parse(fs.readFileSync(legacyConfig, 'utf8'));
-      if (cfg.siyuanToken) return cfg.siyuanToken;
-    } catch { /* ignore */ }
-  }
-
-  // Priority 3: Read from SiYuan conf.json
-  // Try common SiYuan workspace locations
+  // Priority 2: Read from SiYuan workspace conf.json (most reliable —
+  // matches the actual SiYuan instance this plugin is installed in)
   const possibleConfs = [];
 
   // Check SIYUAN_WORKSPACE env
@@ -123,6 +114,15 @@ function getSiYuanToken() {
           return conf.api.token;
         }
       }
+    } catch { /* ignore */ }
+  }
+
+  // Priority 3: Legacy config file (fallback for standalone installs)
+  const legacyConfig = path.join(os.homedir(), '.claude-to-siyuan', 'config.json');
+  if (fs.existsSync(legacyConfig)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(legacyConfig, 'utf8'));
+      if (cfg.siyuanToken) return cfg.siyuanToken;
     } catch { /* ignore */ }
   }
 
