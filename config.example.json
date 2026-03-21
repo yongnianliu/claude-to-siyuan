@@ -1,0 +1,8 @@
+{
+  "siyuanUrl": "http://127.0.0.1:6806",
+  "siyuanToken": "",
+  "notebook": "",
+  "parentPath": "/Claude Code Sessions",
+  "template": "## ${role} (${time})\n\n${content}\n\n---\n",
+  "headerTemplate": "# ${projectName}\n\n- 项目: ${projectName}\n- 开始时间: ${date} ${time}\n- Session ID: ${sessionId}\n\n---\n"
+}
