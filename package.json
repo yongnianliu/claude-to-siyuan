@@ -1,14 +1,12 @@
 {
   "name": "claude-to-siyuan",
-  "version": "1.0.0",
-  "description": "Claude Code Stop hook that saves conversation turns to SiYuan notes",
-  "main": "src/hook.js",
+  "version": "1.1.0",
+  "description": "SiYuan plugin: automatically save Claude Code conversations to SiYuan notes",
+  "main": "index.js",
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "install-hook": "node install.js",
-    "uninstall-hook": "node uninstall.js"
+    "test": "node --test test/*.test.js"
   },
-  "keywords": ["claude-code", "siyuan", "hook", "notes", "思源笔记"],
+  "keywords": ["claude-code", "siyuan", "siyuan-plugin", "hook", "notes", "思源笔记"],
   "author": "yongnianliu",
   "repository": {
     "type": "git",

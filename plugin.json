@@ -1,0 +1,41 @@
+{
+  "name": "claude-to-siyuan",
+  "author": "yongnianliu",
+  "url": "https://github.com/yongnianliu/claude-to-siyuan",
+  "version": "1.1.0",
+  "minAppVersion": "3.2.0",
+  "backends": ["windows", "linux", "darwin"],
+  "frontends": ["desktop", "browser-desktop", "desktop-window"],
+  "disabledInPublish": false,
+  "displayName": {
+    "default": "Claude Code Session Sync",
+    "zh_CN": "Claude Code 会话同步"
+  },
+  "description": {
+    "default": "Automatically save Claude Code conversations to SiYuan notes via Stop hook. Supports incremental append and date-based organization.",
+    "zh_CN": "通过 Stop Hook 自动将 Claude Code 对话保存到思源笔记，支持增量追加和按日期组织。"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "",
+    "custom": []
+  },
+  "keywords": [
+    "claude-code",
+    "hook",
+    "session",
+    "sync",
+    "notes",
+    "对话同步",
+    "会话记录"
+  ],
+  "i18n": [
+    "en_US",
+    "zh_CN"
+  ]
+}

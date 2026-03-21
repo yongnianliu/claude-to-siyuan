@@ -1,0 +1,38 @@
+{
+  "title": "Claude Code Session Sync",
+  "description": "Automatically save Claude Code conversations to SiYuan notes",
+  "setting": {
+    "parentPath": "Document Path",
+    "parentPathDesc": "Parent path for session documents (under your notebook root)",
+    "template": "Message Template",
+    "templateDesc": "Template for each message. Variables: ${role}, ${time}, ${content}",
+    "headerTemplate": "Document Header Template",
+    "headerTemplateDesc": "Template for new document header. Variables: ${projectName}, ${date}, ${time}, ${sessionId}",
+    "hookStatus": "Hook Status",
+    "hookInstalled": "✅ Claude Code Stop hook is installed",
+    "hookNotInstalled": "❌ Hook not installed",
+    "installHook": "Install Hook",
+    "uninstallHook": "Uninstall Hook",
+    "notebook": "Target Notebook",
+    "notebookDesc": "Select the notebook to save session documents",
+    "selectNotebook": "Select notebook...",
+    "testConnection": "Test Connection",
+    "testSuccess": "✅ Connection successful! SiYuan API is reachable.",
+    "testFailed": "❌ Connection failed: ",
+    "resetTemplates": "Reset Templates",
+    "resetTemplatesDesc": "Reset message and header templates to defaults",
+    "resetBtn": "Reset to Defaults",
+    "resetDone": "Templates reset to defaults",
+    "hookInstalledMsg": "Hook installed successfully! Restart Claude Code to activate.",
+    "hookUninstalledMsg": "Hook uninstalled. Restart Claude Code to take effect.",
+    "hookInstallFailed": "Failed to install hook: ",
+    "hookUninstallFailed": "Failed to uninstall hook: ",
+    "notebookLoadFailed": "Failed to load notebooks"
+  },
+  "topbar": {
+    "title": "Claude Code Session Sync",
+    "openSettings": "Settings",
+    "syncNow": "View Sessions",
+    "status": "Status"
+  }
+}
