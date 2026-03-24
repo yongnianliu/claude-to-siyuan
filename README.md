@@ -1,6 +1,6 @@
 # Claude Code Session Sync
 
-[中文说明](README_zh_CN.md)
+[中文说明](https://github.com/yongnianliu/claude-to-siyuan/blob/master/README_zh_CN.md)
 
 A SiYuan plugin that automatically saves Claude Code conversations to SiYuan notes via Stop hook.
 

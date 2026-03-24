@@ -9,6 +9,7 @@ const { Plugin, Setting, showMessage, Menu } = require('siyuan');
 
 const PLUGIN_NAME = 'claude-to-siyuan';
 const CONFIG_KEY = 'config.json';
+const HOOK_CONFIG_KEY = 'hook-config.json';
 
 const DEFAULT_TEMPLATE = '## ${role} (${time})\n\n${content}\n\n---\n';
 const DEFAULT_HEADER_TEMPLATE =
@@ -193,8 +194,8 @@ module.exports = class ClaudeToSiYuan extends Plugin {
         this.config.template = templateInput.value || DEFAULT_TEMPLATE;
         this.config.headerTemplate = headerInput.value || DEFAULT_HEADER_TEMPLATE;
         await this.saveData(CONFIG_KEY, this.config);
-        // Also write config to plugin directory for hook.js to read
-        this.writeHookConfig();
+        // Also save hook config via saveData (petal directory)
+        await this.writeHookConfig();
       },
     });
 
@@ -306,62 +307,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     }
   }
 
-  // ── Hook management ─────────────────────────────────────────────
-
-  /**
-   * Get the path to the hook.js script inside the plugin directory.
-   * In SiYuan, plugin data is served from /plugins/{name}/ relative URL,
-   * but on disk it's at {workspace}/data/plugins/{name}/.
-   *
-   * We use the SiYuan API to determine the workspace path.
-   */
-  async getHookScriptPath() {
-    const resp = await fetch('/api/system/getWorkspaces', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    const data = await resp.json();
-
-    // getWorkspaces returns current workspace or list
-    let workspacePath = '';
-    if (data.code === 0) {
-      // Try to get current workspace from getConf
-      const confResp = await fetch('/api/system/getConf', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      const confData = await confResp.json();
-      if (confData.code === 0 && confData.data && confData.data.conf) {
-        workspacePath = confData.data.conf.system.workspaceDir;
-      }
-    }
-
-    if (!workspacePath) {
-      throw new Error('Could not determine SiYuan workspace path');
-    }
-
-    // Normalize path separators for the OS
-    const sep = workspacePath.includes('\\') ? '\\' : '/';
-    return workspacePath + sep + 'data' + sep + 'plugins' + sep + PLUGIN_NAME + sep + 'hook.js';
-  }
-
-  async getClaudeSettingsPath() {
-    // Cross-platform home directory detection
-    const confResp = await fetch('/api/system/getConf', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    const confData = await confResp.json();
-
-    let homeDir = '';
-    if (confData.code === 0 && confData.data && confData.data.conf) {
-      const os = confData.data.conf.system.os;
-      // Use the SiYuan API to read/write the file instead
-    }
-
-    // We'll use a different approach: write via SiYuan's file API
-    return null;
-  }
+  // ── Helper: run Node.js code via child_process ──────────────────
 
   /**
    * Get the claude config dir name (e.g. '.claude' or '.claude-internal')
@@ -371,219 +317,118 @@ module.exports = class ClaudeToSiYuan extends Plugin {
   }
 
   /**
-   * Read ~/.claude/settings.json via file system
+   * Execute a Node.js one-liner and return stdout.
+   * Uses require('child_process').execSync (available in SiYuan Electron).
    */
-  async readClaudeSettings() {
-    try {
-      // Use SiYuan's /api/file/getFile — but it only works with workspace files.
-      // For user home files, we'll use the hook.js approach:
-      // Write a tiny script that reads and returns the settings.
-      //
-      // Actually, since this runs in a browser context, we need to use
-      // the Node.js child_process — which we can't do directly.
-      // Instead, we'll use the kernel API proxy approach.
-
-      // Simpler: use /api/system/getConf to get homeDir, then use fetch to a local endpoint.
-      // Even simpler: have the hook.js manage its own installation when run with --install flag.
-
-      const hookPath = await this.getHookScriptPath();
-
-      // Use the SiYuan /api/system/exec API if available, or fall back to
-      // writing a helper that the user runs manually.
-      // For maximum compatibility, we call node directly via fetch to a local helper.
-
-      // Best approach: use the API endpoint we control
-      // Let's try the exec approach
-      const result = await this.execNode(`
-        const fs = require('fs');
-        const path = require('path');
-        const os = require('os');
-        const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
-        try {
-          const data = fs.readFileSync(settingsPath, 'utf8');
-          process.stdout.write(data);
-        } catch(e) {
-          process.stdout.write('{}');
-        }
-      `);
-      return JSON.parse(result || '{}');
-    } catch {
-      return {};
-    }
+  execNodeSync(code) {
+    const { execSync } = require('child_process');
+    return execSync(`node -e "${code.replace(/"/g, '\\"')}"`, {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: 10000,
+    }).trim();
   }
 
-  /**
-   * Execute a Node.js snippet and return stdout.
-   * Uses SiYuan's /api/system/exec if available (SiYuan 3.x kernel).
-   * Falls back to XMLHttpRequest to avoid CORS issues.
-   */
-  async execNode(code) {
-    // Try using the /api/system/exec endpoint (available in some SiYuan builds)
-    // If not available, we write a temp script and read it back
-    try {
-      const resp = await fetch('/api/system/exec', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmd: 'node', args: ['-e', code], timeout: 10000 }),
-      });
-      const data = await resp.json();
-      if (data.code === 0) {
-        return data.data;
-      }
-    } catch (_) {
-      // exec API not available
-    }
-
-    // Fallback: write script to plugin dir, invoke via another mechanism
-    // For now, return null and let the UI handle it
-    return null;
-  }
+  // ── Hook management ─────────────────────────────────────────────
 
   /**
-   * Install the Claude Code Stop hook by writing to ~/.claude/settings.json
-   * Uses the hook.js --install command.
+   * Get the path to the hook.js script inside the plugin directory.
    */
-  async doInstallHook() {
-    const hookPath = await this.getHookScriptPath();
-    // Normalize to forward slashes for the JSON command
-    const normalizedPath = hookPath.replace(/\\/g, '/');
-
-    // Write the config file first so hook.js can read it
-    await this.writeHookConfig();
-
-    // Try direct Node exec for installing hook
-    const installCode = `
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-
-      const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
-      const hookCommand = 'node "' + ${JSON.stringify(normalizedPath)} + '"';
-
-      let settings = {};
-      try {
-        if (fs.existsSync(settingsPath)) {
-          settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        }
-      } catch(e) { settings = {}; }
-
-      if (!settings.hooks) settings.hooks = {};
-      if (!settings.hooks.Stop) settings.hooks.Stop = [];
-
-      // Check if already registered
-      const exists = settings.hooks.Stop.some(entry =>
-        entry.hooks && entry.hooks.some(h => h.command && h.command.includes('claude-to-siyuan'))
-      );
-
-      if (!exists) {
-        settings.hooks.Stop.push({
-          hooks: [{
-            type: 'command',
-            command: hookCommand,
-            timeout: 30
-          }]
-        });
-
-        const claudeDir = path.dirname(settingsPath);
-        if (!fs.existsSync(claudeDir)) {
-          fs.mkdirSync(claudeDir, { recursive: true });
-        }
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-        process.stdout.write('installed');
-      } else {
-        process.stdout.write('already_installed');
-      }
-    `;
-
-    const result = await this.execNode(installCode);
-    if (result === null) {
-      // execNode not available — write instructions for manual install
-      // Try alternative: putFile approach
-      await this.installHookViaFile();
-    }
-  }
-
-  /**
-   * Fallback: write an install script to plugin dir, then provide instructions.
-   */
-  async installHookViaFile() {
-    const hookPath = await this.getHookScriptPath();
-    const normalizedPath = hookPath.replace(/\\/g, '/');
-
-    // Get workspace to write the install script
+  async getHookScriptPath() {
     const confResp = await fetch('/api/system/getConf', {
       method: 'POST',
       body: JSON.stringify({}),
     });
     const confData = await confResp.json();
-    const workspaceDir = confData.data.conf.system.workspaceDir;
 
+    let workspacePath = '';
+    if (confData.code === 0 && confData.data && confData.data.conf) {
+      workspacePath = confData.data.conf.system.workspaceDir;
+    }
+
+    if (!workspacePath) {
+      throw new Error('Could not determine SiYuan workspace path');
+    }
+
+    const sep = workspacePath.includes('\\') ? '\\' : '/';
+    return workspacePath + sep + 'data' + sep + 'plugins' + sep + PLUGIN_NAME + sep + 'hook.js';
+  }
+
+  /**
+   * Install the Claude Code Stop hook into settings.json
+   */
+  async doInstallHook() {
+    const hookPath = await this.getHookScriptPath();
+    const normalizedPath = hookPath.replace(/\\/g, '/');
     const claudeDir = this.getClaudeDir();
 
-    // Write install helper script to plugin directory via SiYuan file API
-    const installScript = `
+    // Write hook config first
+    await this.writeHookConfig();
+
+    try {
+      const { execSync } = require('child_process');
+      // Use a temp script file to avoid escaping issues
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-install.js');
+
+      fs.writeFileSync(tmpScript, `
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-
 const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
 const hookCommand = 'node "${normalizedPath}"';
-
 let settings = {};
 try {
   if (fs.existsSync(settingsPath)) {
     settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   }
 } catch(e) { settings = {}; }
-
 if (!settings.hooks) settings.hooks = {};
 if (!settings.hooks.Stop) settings.hooks.Stop = [];
-
 const exists = settings.hooks.Stop.some(entry =>
   entry.hooks && entry.hooks.some(h => h.command && h.command.includes('claude-to-siyuan'))
 );
-
 if (!exists) {
   settings.hooks.Stop.push({
-    hooks: [{
-      type: 'command',
-      command: hookCommand,
-      timeout: 30
-    }]
+    hooks: [{ type: 'command', command: hookCommand, timeout: 30 }]
   });
-
-  const claudeDir = path.dirname(settingsPath);
-  if (!fs.existsSync(claudeDir)) {
-    fs.mkdirSync(claudeDir, { recursive: true });
-  }
+  const dir = path.dirname(settingsPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-  console.log('✅ Hook installed successfully!');
-} else {
-  console.log('✅ Hook already installed.');
 }
-`;
+`, 'utf8');
 
-    const formData = new FormData();
-    formData.append('path', `/data/plugins/${PLUGIN_NAME}/install-hook.js`);
-    formData.append('isDir', 'false');
-    formData.append('modTime', Math.floor(Date.now() / 1000).toString());
-    formData.append('file', new Blob([installScript], { type: 'application/javascript' }));
+      execSync(`node "${tmpScript}"`, { stdio: 'pipe', timeout: 10000 });
+      try { fs.unlinkSync(tmpScript); } catch (_) {}
+    } catch (e) {
+      showMessage(this.i18n.setting.hookInstallFailed + e.message, 6000, 'error');
+    }
+  }
 
-    await fetch('/api/file/putFile', { method: 'POST', body: formData });
+  /**
+   * Uninstall the Claude Code Stop hook from settings.json
+   */
+  async doUninstallHook() {
+    const claudeDir = this.getClaudeDir();
 
-    // Also write uninstall helper
-    const uninstallScript = `
+    try {
+      const { execSync } = require('child_process');
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-uninstall.js');
+
+      fs.writeFileSync(tmpScript, `
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-
 const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
-
 let settings = {};
 try {
   settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
 } catch(e) { process.exit(0); }
-
 if (settings.hooks && settings.hooks.Stop) {
   settings.hooks.Stop = settings.hooks.Stop.filter(entry =>
     !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('claude-to-siyuan')))
@@ -591,102 +436,28 @@ if (settings.hooks && settings.hooks.Stop) {
   if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-  console.log('✅ Hook uninstalled.');
-} else {
-  console.log('ℹ️  No hook found to uninstall.');
 }
-`;
+`, 'utf8');
 
-    const formData2 = new FormData();
-    formData2.append('path', `/data/plugins/${PLUGIN_NAME}/uninstall-hook.js`);
-    formData2.append('isDir', 'false');
-    formData2.append('modTime', Math.floor(Date.now() / 1000).toString());
-    formData2.append('file', new Blob([uninstallScript], { type: 'application/javascript' }));
-
-    await fetch('/api/file/putFile', { method: 'POST', body: formData2 });
-
-    // Now execute the install script via Node.js subprocess
-    // Use the /api/system/exec or require('child_process')
-    // In SiYuan desktop, we're in an Electron context with Node.js access
-    try {
-      const { execSync } = require('child_process');
-      const pluginDir = workspaceDir + (workspaceDir.includes('\\') ? '\\' : '/') +
-        'data' + (workspaceDir.includes('\\') ? '\\' : '/') +
-        'plugins' + (workspaceDir.includes('\\') ? '\\' : '/') + PLUGIN_NAME;
-      execSync(`node "${pluginDir + (workspaceDir.includes('\\') ? '\\' : '/') + 'install-hook.js'}"`, {
-        stdio: 'pipe',
-      });
+      execSync(`node "${tmpScript}"`, { stdio: 'pipe', timeout: 10000 });
+      try { fs.unlinkSync(tmpScript); } catch (_) {}
     } catch (e) {
-      showMessage(this.i18n.setting.hookInstallFailed + e.message, 6000, 'error');
+      showMessage(this.i18n.setting.hookUninstallFailed + e.message, 6000, 'error');
     }
   }
 
-  async doUninstallHook() {
-    const uninstallCode = `
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-
-      const settingsPath = path.join(os.homedir(), '${this.getClaudeDir()}', 'settings.json');
-
-      let settings = {};
-      try {
-        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      } catch(e) { process.exit(0); }
-
-      if (settings.hooks && settings.hooks.Stop) {
-        settings.hooks.Stop = settings.hooks.Stop.filter(entry =>
-          !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('claude-to-siyuan')))
-        );
-        if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
-        if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-        process.stdout.write('uninstalled');
-      } else {
-        process.stdout.write('not_found');
-      }
-    `;
-
-    const result = await this.execNode(uninstallCode);
-    if (result === null) {
-      // Fallback: use child_process in Electron context
-      try {
-        const { execSync } = require('child_process');
-        const confResp = await fetch('/api/system/getConf', {
-          method: 'POST',
-          body: JSON.stringify({}),
-        });
-        const confData = await confResp.json();
-        const workspaceDir = confData.data.conf.system.workspaceDir;
-        const sep = workspaceDir.includes('\\') ? '\\' : '/';
-        const scriptPath = workspaceDir + sep + 'data' + sep + 'plugins' + sep + PLUGIN_NAME + sep + 'uninstall-hook.js';
-
-        // Ensure the script exists
-        await this.installHookViaFile(); // This writes both scripts
-        execSync(`node "${scriptPath}"`, { stdio: 'pipe' });
-      } catch (e) {
-        showMessage(this.i18n.setting.hookUninstallFailed + e.message, 6000, 'error');
-      }
-    }
-  }
-
+  /**
+   * Check if the hook is currently installed in settings.json
+   */
   async checkHookStatus() {
     try {
       const claudeDir = this.getClaudeDir();
       const { execSync } = require('child_process');
-      const result = execSync(`node -e "
-        const fs = require('fs');
-        const path = require('path');
-        const os = require('os');
-        const settingsPath = path.join(os.homedir(), '${claudeDir}', 'settings.json');
-        try {
-          const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-          const found = s.hooks && s.hooks.Stop && s.hooks.Stop.some(e =>
-            e.hooks && e.hooks.some(h => h.command && h.command.includes('claude-to-siyuan'))
-          );
-          process.stdout.write(found ? 'yes' : 'no');
-        } catch(e) { process.stdout.write('no'); }
-      "`, { encoding: 'utf8', stdio: 'pipe' });
+      const result = execSync(`node -e "const fs=require('fs'),path=require('path'),os=require('os');try{const s=JSON.parse(fs.readFileSync(path.join(os.homedir(),'${claudeDir}','settings.json'),'utf8'));process.stdout.write(s.hooks&&s.hooks.Stop&&s.hooks.Stop.some(e=>e.hooks&&e.hooks.some(h=>h.command&&h.command.includes('claude-to-siyuan')))?'yes':'no')}catch(e){process.stdout.write('no')}"`, {
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 5000,
+      });
       return result.trim() === 'yes';
     } catch {
       return false;
@@ -696,8 +467,8 @@ if (settings.hooks && settings.hooks.Stop) {
   // ── Hook config file ────────────────────────────────────────────
 
   /**
-   * Write the hook configuration file to the plugin directory.
-   * The hook.js reads this file at runtime.
+   * Write hook config using saveData() (saves to petal directory).
+   * hook.js reads this via the plugin's data storage path.
    */
   async writeHookConfig() {
     const hookConfig = {
@@ -709,12 +480,6 @@ if (settings.hooks && settings.hooks.Stop) {
       headerTemplate: this.config.headerTemplate,
     };
 
-    const formData = new FormData();
-    formData.append('path', `/data/plugins/${PLUGIN_NAME}/hook-config.json`);
-    formData.append('isDir', 'false');
-    formData.append('modTime', Math.floor(Date.now() / 1000).toString());
-    formData.append('file', new Blob([JSON.stringify(hookConfig, null, 2)], { type: 'application/json' }));
-
-    await fetch('/api/file/putFile', { method: 'POST', body: formData });
+    await this.saveData(HOOK_CONFIG_KEY, hookConfig);
   }
 };

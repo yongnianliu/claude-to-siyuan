@@ -1,6 +1,6 @@
 # Claude Code 会话同步
 
-[English](README.md)
+[English](https://github.com/yongnianliu/claude-to-siyuan/blob/master/README.md)
 
 思源笔记插件，通过 Stop Hook 自动将 Claude Code 对话保存到思源笔记。
 

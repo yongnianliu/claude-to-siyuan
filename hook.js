@@ -56,13 +56,24 @@ function loadConfig() {
     return JSON.parse(fs.readFileSync(envPath, 'utf8'));
   }
 
-  // Priority 2: Plugin directory hook-config.json (written by SiYuan plugin settings UI)
+  // Priority 2: Petal directory hook-config.json (written by SiYuan plugin saveData())
+  // saveData() stores to: {workspace}/data/storage/petal/{pluginName}/
+  // SCRIPT_DIR is: {workspace}/data/plugins/claude-to-siyuan/
+  const pluginDir = SCRIPT_DIR;
+  const pluginsDir = path.dirname(pluginDir);        // .../data/plugins
+  const dataDir = path.dirname(pluginsDir);           // .../data
+  const petalConfig = path.join(dataDir, 'storage', 'petal', 'claude-to-siyuan', 'hook-config.json');
+  if (fs.existsSync(petalConfig)) {
+    return JSON.parse(fs.readFileSync(petalConfig, 'utf8'));
+  }
+
+  // Priority 3: Plugin directory hook-config.json (legacy / manual placement)
   const pluginConfig = path.join(SCRIPT_DIR, 'hook-config.json');
   if (fs.existsSync(pluginConfig)) {
     return JSON.parse(fs.readFileSync(pluginConfig, 'utf8'));
   }
 
-  // Priority 3: Legacy standalone config location
+  // Priority 4: Legacy standalone config location
   const legacyConfig = path.join(os.homedir(), '.claude-to-siyuan', 'config.json');
   if (fs.existsSync(legacyConfig)) {
     return JSON.parse(fs.readFileSync(legacyConfig, 'utf8'));
