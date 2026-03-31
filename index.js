@@ -56,26 +56,56 @@ module.exports = class ClaudeToSiYuan extends Plugin {
   async uninstall() {
     // Uninstall hook when plugin is removed
     try {
-      this.doUninstallHook();
+      await this.doUninstallHook();
     } catch (_) {
       // Best-effort
     }
+    // Delete plugin data from petal directory
+    this.removeData(CONFIG_KEY).catch(() => {});
+    this.removeData(HOOK_CONFIG_KEY).catch(() => {});
   }
 
   // ── Settings UI ─────────────────────────────────────────────────
 
   initSettings() {
+    // Store references to inputs for reset on cancel
+    const inputs = {};
+
+    this.setting = new Setting({
+      confirmCallback: async () => {
+        this.config.notebook = inputs.notebook.value;
+        this.config.parentPath = inputs.parentPath.value || '/Claude Code Sessions';
+        this.config.siyuanPort = inputs.port.value || '6806';
+        this.config.claudeConfigDir = inputs.claudeDir.value || '.claude';
+        this.config.template = inputs.template.value || DEFAULT_TEMPLATE;
+        this.config.headerTemplate = inputs.header.value || DEFAULT_HEADER_TEMPLATE;
+        await this.saveData(CONFIG_KEY, this.config);
+        await this.writeHookConfig();
+      },
+      destroyCallback: () => {
+        // Reset inputs to saved config values on cancel / close
+        inputs.notebook.value = this.config.notebook;
+        inputs.parentPath.value = this.config.parentPath;
+        inputs.port.value = this.config.siyuanPort || '6806';
+        inputs.claudeDir.value = this.config.claudeConfigDir || '.claude';
+        inputs.template.value = this.config.template;
+        inputs.header.value = this.config.headerTemplate;
+      },
+    });
+
     // -- Notebook selector --
     const notebookSelect = document.createElement('select');
     notebookSelect.className = 'b3-select fn__block';
     notebookSelect.innerHTML = `<option value="">${this.i18n.setting.selectNotebook}</option>`;
     this.loadNotebooks(notebookSelect);
+    inputs.notebook = notebookSelect;
 
     // -- Parent path input --
     const parentPathInput = document.createElement('input');
     parentPathInput.className = 'b3-text-field fn__block';
     parentPathInput.value = this.config.parentPath;
     parentPathInput.placeholder = '/Claude Code Sessions';
+    inputs.parentPath = parentPathInput;
 
     // -- SiYuan port input --
     const portInput = document.createElement('input');
@@ -85,12 +115,14 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     portInput.max = '65535';
     portInput.value = this.config.siyuanPort || '6806';
     portInput.placeholder = '6806';
+    inputs.port = portInput;
 
     // -- Claude config dir input --
     const claudeDirInput = document.createElement('input');
     claudeDirInput.className = 'b3-text-field fn__block';
     claudeDirInput.value = this.config.claudeConfigDir || '.claude';
     claudeDirInput.placeholder = '.claude';
+    inputs.claudeDir = claudeDirInput;
 
     // -- Message template textarea --
     const templateInput = document.createElement('textarea');
@@ -98,6 +130,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     templateInput.style.height = '80px';
     templateInput.style.fontFamily = 'monospace';
     templateInput.value = this.config.template;
+    inputs.template = templateInput;
 
     // -- Header template textarea --
     const headerInput = document.createElement('textarea');
@@ -105,6 +138,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     headerInput.style.height = '100px';
     headerInput.style.fontFamily = 'monospace';
     headerInput.value = this.config.headerTemplate;
+    inputs.header = headerInput;
 
     // -- Hook status display --
     const hookStatusDiv = document.createElement('div');
@@ -114,31 +148,40 @@ module.exports = class ClaudeToSiYuan extends Plugin {
 
     const hookLabel = document.createElement('span');
     hookLabel.textContent = this.i18n.setting.hookNotInstalled;
-    hookLabel.id = 'hook-status-label';
 
     const installBtn = document.createElement('button');
     installBtn.className = 'b3-button b3-button--outline fn__size200';
     installBtn.textContent = this.i18n.setting.installHook;
-    installBtn.addEventListener('click', () => {
+    installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true;
+      installBtn.textContent = '...';
       try {
-        this.doInstallHook();
+        await this.doInstallHook();
         hookLabel.textContent = this.i18n.setting.hookInstalled;
         showMessage(this.i18n.setting.hookInstalledMsg);
       } catch (e) {
         showMessage(this.i18n.setting.hookInstallFailed + e.message, 6000, 'error');
+      } finally {
+        installBtn.disabled = false;
+        installBtn.textContent = this.i18n.setting.installHook;
       }
     });
 
     const uninstallBtn = document.createElement('button');
     uninstallBtn.className = 'b3-button b3-button--outline fn__size200';
     uninstallBtn.textContent = this.i18n.setting.uninstallHook;
-    uninstallBtn.addEventListener('click', () => {
+    uninstallBtn.addEventListener('click', async () => {
+      uninstallBtn.disabled = true;
+      uninstallBtn.textContent = '...';
       try {
-        this.doUninstallHook();
+        await this.doUninstallHook();
         hookLabel.textContent = this.i18n.setting.hookNotInstalled;
         showMessage(this.i18n.setting.hookUninstalledMsg);
       } catch (e) {
         showMessage(this.i18n.setting.hookUninstallFailed + e.message, 6000, 'error');
+      } finally {
+        uninstallBtn.disabled = false;
+        uninstallBtn.textContent = this.i18n.setting.uninstallHook;
       }
     });
 
@@ -146,7 +189,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     hookStatusDiv.appendChild(installBtn);
     hookStatusDiv.appendChild(uninstallBtn);
 
-    // Check current hook status
+    // Check current hook status (async, non-blocking)
     this.checkHookStatus().then(installed => {
       hookLabel.textContent = installed
         ? this.i18n.setting.hookInstalled
@@ -184,21 +227,7 @@ module.exports = class ClaudeToSiYuan extends Plugin {
       showMessage(this.i18n.setting.resetDone);
     });
 
-    // -- Build Setting panel --
-    this.setting = new Setting({
-      confirmCallback: async () => {
-        this.config.notebook = notebookSelect.value;
-        this.config.parentPath = parentPathInput.value || '/Claude Code Sessions';
-        this.config.siyuanPort = portInput.value || '6806';
-        this.config.claudeConfigDir = claudeDirInput.value || '.claude';
-        this.config.template = templateInput.value || DEFAULT_TEMPLATE;
-        this.config.headerTemplate = headerInput.value || DEFAULT_HEADER_TEMPLATE;
-        await this.saveData(CONFIG_KEY, this.config);
-        // Also save hook config via saveData (petal directory)
-        await this.writeHookConfig();
-      },
-    });
-
+    // -- Add items to setting panel --
     this.setting.addItem({
       title: this.i18n.setting.hookStatus,
       direction: 'row',
@@ -307,33 +336,28 @@ module.exports = class ClaudeToSiYuan extends Plugin {
     }
   }
 
-  // ── Helper: run Node.js code via child_process ──────────────────
+  // ── Helper: async Node.js execution ─────────────────────────────
 
-  /**
-   * Get the claude config dir name (e.g. '.claude' or '.claude-internal')
-   */
   getClaudeDir() {
     return this.config.claudeConfigDir || '.claude';
   }
 
   /**
-   * Execute a Node.js one-liner and return stdout.
-   * Uses require('child_process').execSync (available in SiYuan Electron).
+   * Execute a Node.js script file asynchronously via child_process.exec.
+   * Returns a Promise that resolves with stdout.
    */
-  execNodeSync(code) {
-    const { execSync } = require('child_process');
-    return execSync(`node -e "${code.replace(/"/g, '\\"')}"`, {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 10000,
-    }).trim();
+  execNodeAsync(scriptPath) {
+    return new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      exec(`node "${scriptPath}"`, { encoding: 'utf8', timeout: 10000 }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout.trim());
+      });
+    });
   }
 
   // ── Hook management ─────────────────────────────────────────────
 
-  /**
-   * Get the path to the hook.js script inside the plugin directory.
-   */
   async getHookScriptPath() {
     const confResp = await fetch('/api/system/getConf', {
       method: 'POST',
@@ -355,25 +379,21 @@ module.exports = class ClaudeToSiYuan extends Plugin {
   }
 
   /**
-   * Install the Claude Code Stop hook into settings.json
+   * Install the Claude Code Stop hook (async, non-blocking)
    */
   async doInstallHook() {
     const hookPath = await this.getHookScriptPath();
     const normalizedPath = hookPath.replace(/\\/g, '/');
     const claudeDir = this.getClaudeDir();
 
-    // Write hook config first
     await this.writeHookConfig();
 
-    try {
-      const { execSync } = require('child_process');
-      // Use a temp script file to avoid escaping issues
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-      const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-install.js');
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-install.js');
 
-      fs.writeFileSync(tmpScript, `
+    fs.writeFileSync(tmpScript, `
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -400,27 +420,25 @@ if (!exists) {
 }
 `, 'utf8');
 
-      execSync(`node "${tmpScript}"`, { stdio: 'pipe', timeout: 10000 });
+    try {
+      await this.execNodeAsync(tmpScript);
+    } finally {
       try { fs.unlinkSync(tmpScript); } catch (_) {}
-    } catch (e) {
-      showMessage(this.i18n.setting.hookInstallFailed + e.message, 6000, 'error');
     }
   }
 
   /**
-   * Uninstall the Claude Code Stop hook from settings.json
+   * Uninstall the Claude Code Stop hook (async, non-blocking)
    */
   async doUninstallHook() {
     const claudeDir = this.getClaudeDir();
 
-    try {
-      const { execSync } = require('child_process');
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-      const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-uninstall.js');
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const tmpScript = path.join(os.tmpdir(), 'claude-siyuan-uninstall.js');
 
-      fs.writeFileSync(tmpScript, `
+    fs.writeFileSync(tmpScript, `
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -439,26 +457,30 @@ if (settings.hooks && settings.hooks.Stop) {
 }
 `, 'utf8');
 
-      execSync(`node "${tmpScript}"`, { stdio: 'pipe', timeout: 10000 });
+    try {
+      await this.execNodeAsync(tmpScript);
+    } finally {
       try { fs.unlinkSync(tmpScript); } catch (_) {}
-    } catch (e) {
-      showMessage(this.i18n.setting.hookUninstallFailed + e.message, 6000, 'error');
     }
   }
 
   /**
-   * Check if the hook is currently installed in settings.json
+   * Check if hook is installed (async, non-blocking)
    */
   async checkHookStatus() {
     try {
       const claudeDir = this.getClaudeDir();
-      const { execSync } = require('child_process');
-      const result = execSync(`node -e "const fs=require('fs'),path=require('path'),os=require('os');try{const s=JSON.parse(fs.readFileSync(path.join(os.homedir(),'${claudeDir}','settings.json'),'utf8'));process.stdout.write(s.hooks&&s.hooks.Stop&&s.hooks.Stop.some(e=>e.hooks&&e.hooks.some(h=>h.command&&h.command.includes('claude-to-siyuan')))?'yes':'no')}catch(e){process.stdout.write('no')}"`, {
-        encoding: 'utf8',
-        stdio: 'pipe',
-        timeout: 5000,
-      });
-      return result.trim() === 'yes';
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const settingsPath = path.join(os.homedir(), claudeDir, 'settings.json');
+
+      // Read directly via fs (available in Electron) — no subprocess needed
+      if (!fs.existsSync(settingsPath)) return false;
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      return settings.hooks && settings.hooks.Stop && settings.hooks.Stop.some(entry =>
+        entry.hooks && entry.hooks.some(h => h.command && h.command.includes('claude-to-siyuan'))
+      );
     } catch {
       return false;
     }
@@ -466,10 +488,6 @@ if (settings.hooks && settings.hooks.Stop) {
 
   // ── Hook config file ────────────────────────────────────────────
 
-  /**
-   * Write hook config using saveData() (saves to petal directory).
-   * hook.js reads this via the plugin's data storage path.
-   */
   async writeHookConfig() {
     const hookConfig = {
       notebook: this.config.notebook,

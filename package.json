@@ -1,6 +1,6 @@
 {
   "name": "claude-to-siyuan",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "SiYuan plugin: automatically save Claude Code conversations to SiYuan notes",
   "main": "index.js",
   "scripts": {

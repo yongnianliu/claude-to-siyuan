@@ -2,10 +2,10 @@
   "name": "claude-to-siyuan",
   "author": "yongnianliu",
   "url": "https://github.com/yongnianliu/claude-to-siyuan",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "minAppVersion": "3.2.0",
   "backends": ["windows", "linux", "darwin"],
-  "frontends": ["desktop", "browser-desktop", "desktop-window"],
+  "frontends": ["desktop", "desktop-window"],
   "disabledInPublish": true,
   "displayName": {
     "default": "Claude Code Session Sync",
